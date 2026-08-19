@@ -35,6 +35,7 @@ export interface JobStore {
   deleteJob(id: string): Promise<void>;
   getJobFile(id: string): Promise<Uint8Array | null>;
   setJobFile(id: string, bytes: Uint8Array): Promise<void>;
+  deleteJobFile(id: string): Promise<void>;
 }
 
 class MemoryJobStore implements JobStore {
@@ -72,6 +73,10 @@ class MemoryJobStore implements JobStore {
 
   async setJobFile(id: string, bytes: Uint8Array): Promise<void> {
     this.files.set(id, bytes);
+  }
+
+  async deleteJobFile(id: string): Promise<void> {
+    this.files.delete(id);
   }
 }
 
@@ -161,6 +166,7 @@ async function tryCreatePrismaStore(): Promise<JobStore | null> {
         return null;
       },
       async setJobFile() {},
+      async deleteJobFile() {},
     };
   } catch (err) {
     console.warn("[job-store] PostgreSQL unavailable, using in-memory store:", (err as Error).message?.slice(0, 120));

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { verifyToken, extractBearerToken } from "@/lib/auth";
 import { getJobStore } from "@/lib/job-store";
 import type { JobResult } from "@/types";
+
+const IS_VERCEL = process.env.VERCEL === "1";
 
 export async function GET(
   request: NextRequest,
@@ -32,7 +35,7 @@ export async function GET(
     FAILED: 100,
   };
 
-  const result: JobResult = {
+  const result: JobResult & { protectedFileBase64?: string; checksum?: string } = {
     jobId: job.id,
     status: job.status as JobResult["status"],
     progress: progressMap[job.status] ?? 0,
@@ -42,8 +45,17 @@ export async function GET(
   };
 
   if (job.status === "COMPLETED") {
-    result.downloadUrl = `/api/download/${job.id}`;
     result.message = "Protection complete. Ready for download.";
+
+    if (IS_VERCEL) {
+      const fileBytes = await store.getJobFile(id + "_protected");
+      if (fileBytes) {
+        result.protectedFileBase64 = Buffer.from(fileBytes).toString("base64");
+        result.checksum = crypto.createHash("sha256").update(fileBytes).digest("hex");
+      }
+    } else {
+      result.downloadUrl = `/api/download/${job.id}`;
+    }
   } else if (job.status === "FAILED") {
     result.message = job.errorMessage || "Protection failed";
   }

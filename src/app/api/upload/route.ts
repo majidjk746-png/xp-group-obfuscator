@@ -192,7 +192,20 @@ export async function POST(request: NextRequest) {
 
     if (!IS_VERCEL) await fs.unlink(inputPath).catch(() => {});
 
-    const response: UploadResponse = {
+    let protectedFileBase64: string | undefined;
+    let protectedChecksum: string | undefined;
+
+    if (IS_VERCEL) {
+      const protectedBuf = await store.getJobFile(jobId + "_protected");
+      if (protectedBuf) {
+        protectedFileBase64 = Buffer.from(protectedBuf).toString("base64");
+        protectedChecksum = crypto.createHash("sha256").update(protectedBuf).digest("hex");
+        await store.deleteJobFile(jobId);
+        await store.deleteJobFile(jobId + "_protected");
+      }
+    }
+
+    const response: UploadResponse & { protectedFileBase64?: string; protectedChecksum?: string } = {
       jobId,
       status: "QUEUED",
       analysis: {
@@ -206,6 +219,7 @@ export async function POST(request: NextRequest) {
         isGui: peInfo?.isGui ?? false,
         isDotNet: (peInfo?.sections.includes(".text") ?? false) && (peInfo?.sections.some(s => s.includes("mscorej") || s.includes("CLR")) ?? false),
       },
+      ...(IS_VERCEL && protectedFileBase64 ? { protectedFileBase64, protectedChecksum } : {}),
     };
 
     return NextResponse.json(response, {

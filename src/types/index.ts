@@ -47,6 +47,8 @@ export interface UploadResponse {
   jobId: string;
   analysis: PeAnalysis;
   status: "QUEUED";
+  protectedFileBase64?: string;
+  protectedChecksum?: string;
 }
 
 export interface ApiError {

@@ -44,6 +44,8 @@ export default function UploadZone() {
   const [jobResult, setJobResult] = useState<JobResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showOptions, setShowOptions] = useState(false);
+  const [protectedBase64, setProtectedBase64] = useState<string | null>(null);
+  const [protectedChecksum, setProtectedChecksum] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const ALLOWED = [".exe", ".dll"];
@@ -126,6 +128,20 @@ export default function UploadZone() {
         throw new Error(data.error || "Upload failed");
       }
 
+      if (data.protectedFileBase64) {
+        setProtectedBase64(data.protectedFileBase64);
+        setProtectedChecksum(data.protectedChecksum);
+        setJobResult({
+          jobId: data.jobId,
+          status: "COMPLETED",
+          progress: 100,
+          originalName: uploadedFile.file.name,
+          protectedSize: Math.round((data.protectedFileBase64.length * 3) / 4),
+          downloadUrl: `data:application/octet-stream;base64,${data.protectedFileBase64}`,
+        });
+        return;
+      }
+
       setJobResult({ jobId: data.jobId, status: "QUEUED", progress: 30 });
       const result = await pollJob(data.jobId);
       if (result?.status !== "COMPLETED") {
@@ -140,6 +156,24 @@ export default function UploadZone() {
   };
 
   const handleDownload = () => {
+    if (protectedBase64 && protectedChecksum) {
+      const byteString = atob(protectedBase64);
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      const blob = new Blob([ab], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `protected_${uploadedFile?.file?.name || "file.exe"}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return;
+    }
     if (jobResult?.jobId) {
       window.open(`/api/download/${jobResult.jobId}`, "_blank");
     }
@@ -150,6 +184,8 @@ export default function UploadZone() {
     setJobResult(null);
     setError(null);
     setIsUploading(false);
+    setProtectedBase64(null);
+    setProtectedChecksum(null);
     if (inputRef.current) inputRef.current.value = "";
   };
 
