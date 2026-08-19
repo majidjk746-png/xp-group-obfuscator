@@ -25,6 +25,7 @@ export interface JobData {
   expiresAt?: Date | null;
   completedAt?: Date | null;
   createdAt?: Date;
+  protectedBytes?: Uint8Array | null;
 }
 
 export interface JobStore {
@@ -32,10 +33,13 @@ export interface JobStore {
   getJob(id: string): Promise<JobData | null>;
   updateJob(id: string, data: Partial<JobData>): Promise<void>;
   deleteJob(id: string): Promise<void>;
+  getJobFile(id: string): Promise<Uint8Array | null>;
+  setJobFile(id: string, bytes: Uint8Array): Promise<void>;
 }
 
 class MemoryJobStore implements JobStore {
   private jobs = new Map<string, JobData>();
+  private files = new Map<string, Uint8Array>();
 
   async createJob(data: JobData): Promise<void> {
     this.jobs.set(data.id, { ...data, createdAt: new Date() });
@@ -48,12 +52,26 @@ class MemoryJobStore implements JobStore {
   async updateJob(id: string, data: Partial<JobData>): Promise<void> {
     const job = this.jobs.get(id);
     if (job) {
-      Object.assign(job, data);
+      if (data.protectedBytes) {
+        this.files.set(id + "_protected", data.protectedBytes);
+      }
+      const { protectedBytes, ...rest } = data;
+      Object.assign(job, rest);
     }
   }
 
   async deleteJob(id: string): Promise<void> {
     this.jobs.delete(id);
+    this.files.delete(id);
+    this.files.delete(id + "_protected");
+  }
+
+  async getJobFile(id: string): Promise<Uint8Array | null> {
+    return this.files.get(id) ?? null;
+  }
+
+  async setJobFile(id: string, bytes: Uint8Array): Promise<void> {
+    this.files.set(id, bytes);
   }
 }
 
@@ -139,6 +157,10 @@ async function tryCreatePrismaStore(): Promise<JobStore | null> {
       async deleteJob(id) {
         await prisma.processedJob.delete({ where: { id } }).catch(() => {});
       },
+      async getJobFile() {
+        return null;
+      },
+      async setJobFile() {},
     };
   } catch (err) {
     console.warn("[job-store] PostgreSQL unavailable, using in-memory store:", (err as Error).message?.slice(0, 120));

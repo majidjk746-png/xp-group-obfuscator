@@ -7,7 +7,7 @@ function createPrismaClient() {
   if (!process.env.DATABASE_URL && !process.env.DATABASE_URL_POSTGRES_PRISMA_URL) {
     throw new Error("DATABASE_URL is not set");
   }
-  const connUrl = process.env.DATABASE_URL || process.env.DATABASE_URL_POSTGRES_PRISMA_URL!;
+  const connUrl = process.env.DATABASE_URL_POSTGRES_PRISMA_URL || process.env.DATABASE_URL!;
   const adapter = new PrismaPg({ connectionString: connUrl });
   return new PrismaClient({
     adapter,

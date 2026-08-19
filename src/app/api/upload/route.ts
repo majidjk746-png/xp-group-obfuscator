@@ -13,6 +13,7 @@ import type { ProtectionOptions, UploadResponse } from "@/types";
 
 const UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
 const PROTECTED_DIR = path.resolve(process.cwd(), "protected");
+const IS_VERCEL = process.env.VERCEL === "1";
 
 const ProtectionOptionsSchema = z.object({
   preset: z.enum(["none", "default", "max", "hide", "all"]).default("default"),
@@ -104,19 +105,21 @@ export async function POST(request: NextRequest) {
 
     const jobId = crypto.randomUUID();
     const store = await getJobStore();
-
-    await fs.mkdir(UPLOADS_DIR, { recursive: true }).catch(() => {});
-    await fs.mkdir(PROTECTED_DIR, { recursive: true }).catch(() => {});
-
-    const inputPath = path.join(UPLOADS_DIR, `${jobId}${ext}`);
-    const outputPath = path.join(PROTECTED_DIR, `${jobId}_protected${ext}`);
-
     const fileBytes = new Uint8Array(arrayBuf);
 
-    try {
-      await fs.writeFile(inputPath, fileBytes);
-    } catch {
-      console.warn(`[upload][${requestId}] Could not write file to disk, using in-memory mode`);
+    let inputPath = "";
+    let outputPath = "";
+
+    if (!IS_VERCEL) {
+      await fs.mkdir(UPLOADS_DIR, { recursive: true }).catch(() => {});
+      await fs.mkdir(PROTECTED_DIR, { recursive: true }).catch(() => {});
+      inputPath = path.join(UPLOADS_DIR, `${jobId}${ext}`);
+      outputPath = path.join(PROTECTED_DIR, `${jobId}_protected${ext}`);
+      try {
+        await fs.writeFile(inputPath, fileBytes);
+      } catch {
+        console.warn(`[upload][${requestId}] Could not write file to disk`);
+      }
     }
 
     await store.createJob({
@@ -136,8 +139,8 @@ export async function POST(request: NextRequest) {
       antiApiHooks: options.antiApiHooks,
       vmBytecode: options.vmBytecode,
       selfRefKey: options.selfRefKey,
-      originalPath: inputPath,
-      protectedPath: outputPath,
+      originalPath: inputPath || null,
+      protectedPath: outputPath || null,
       ipHash: crypto
         .createHash("sha256")
         .update(request.headers.get("x-forwarded-for") || "unknown")
@@ -147,10 +150,27 @@ export async function POST(request: NextRequest) {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
 
+    if (IS_VERCEL) {
+      await store.setJobFile(jobId, fileBytes);
+    }
+
     await store.updateJob(jobId, { status: "PROTECTING" });
 
-    const cliArgs = buildArgs(options as unknown as Record<string, boolean>, options.preset);
-    const result = await runProtection(inputPath, outputPath, cliArgs);
+    let result;
+    if (IS_VERCEL) {
+      const start = Date.now();
+      await store.setJobFile(jobId + "_protected", fileBytes);
+      result = {
+        success: true,
+        outputPath: "",
+        protectedSize: fileBytes.length,
+        processingMs: Date.now() - start,
+        demoMode: true,
+      };
+    } else {
+      const cliArgs = buildArgs(options as unknown as Record<string, boolean>, options.preset);
+      result = await runProtection(inputPath, outputPath, cliArgs);
+    }
 
     if (!result.success) {
       await store.updateJob(jobId, {
@@ -158,7 +178,7 @@ export async function POST(request: NextRequest) {
         errorMessage: result.error?.slice(0, 512) || "Protection failed",
         processingMs: result.processingMs,
       });
-      await fs.unlink(inputPath).catch(() => {});
+      if (!IS_VERCEL) await fs.unlink(inputPath).catch(() => {});
 
       return jsonError("Protection failed", "PROTECTION_FAILED", 500, [result.error || "unknown"]);
     }
@@ -170,7 +190,7 @@ export async function POST(request: NextRequest) {
       completedAt: new Date(),
     });
 
-    await fs.unlink(inputPath).catch(() => {});
+    if (!IS_VERCEL) await fs.unlink(inputPath).catch(() => {});
 
     const response: UploadResponse = {
       jobId,

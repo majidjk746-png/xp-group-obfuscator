@@ -1,0 +1,9 @@
+.env
+.env.local
+.env.development
+.env.production
+uploads/
+protected/
+docker/
+.vercel
+node_modules/

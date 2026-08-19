@@ -5,6 +5,8 @@ import crypto from "crypto";
 import { verifyToken, extractBearerToken } from "@/lib/auth";
 import { getJobStore } from "@/lib/job-store";
 
+const IS_VERCEL = process.env.VERCEL === "1";
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -34,28 +36,41 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden", code: "FORBIDDEN" }, { status: 403 });
   }
 
-  if (!job.protectedPath) {
-    return NextResponse.json({ error: "No output file", code: "NO_FILE" }, { status: 500 });
+  let fileBytes: Buffer | Uint8Array;
+
+  if (IS_VERCEL) {
+    const memBytes = await store.getJobFile(id + "_protected");
+    if (!memBytes) {
+      return NextResponse.json(
+        { error: "File not available in memory", code: "FILE_MISSING" },
+        { status: 404 }
+      );
+    }
+    fileBytes = memBytes;
+  } else {
+    if (!job.protectedPath) {
+      return NextResponse.json({ error: "No output file", code: "NO_FILE" }, { status: 500 });
+    }
+    try {
+      fileBytes = await fs.readFile(job.protectedPath);
+    } catch {
+      return NextResponse.json(
+        { error: "File not found on disk", code: "FILE_MISSING" },
+        { status: 404 }
+      );
+    }
   }
 
-  try {
-    const fileBytes = await fs.readFile(job.protectedPath);
-    const ext = path.extname(job.originalName || ".exe");
-    const baseName = path.basename(job.originalName || "protected", ext);
-    const downloadName = `${baseName}_protected${ext}`;
+  const ext = path.extname(job.originalName || ".exe");
+  const baseName = path.basename(job.originalName || "protected", ext);
+  const downloadName = `${baseName}_protected${ext}`;
 
-    const headers = new Headers();
-    headers.set("Content-Type", "application/octet-stream");
-    headers.set("Content-Disposition", `attachment; filename="${downloadName}"`);
-    headers.set("Content-Length", String(fileBytes.length));
-    headers.set("X-Checksum-SHA256", crypto.createHash("sha256").update(fileBytes).digest("hex"));
-    headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  const headers = new Headers();
+  headers.set("Content-Type", "application/octet-stream");
+  headers.set("Content-Disposition", `attachment; filename="${downloadName}"`);
+  headers.set("Content-Length", String(fileBytes.length));
+  headers.set("X-Checksum-SHA256", crypto.createHash("sha256").update(fileBytes).digest("hex"));
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
 
-    return new NextResponse(fileBytes, { status: 200, headers });
-  } catch {
-    return NextResponse.json(
-      { error: "File not found on disk", code: "FILE_MISSING" },
-      { status: 404 }
-    );
-  }
+  return new NextResponse(Buffer.from(fileBytes), { status: 200, headers });
 }
