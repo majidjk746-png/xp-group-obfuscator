@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Plan {
+  FREE
+  PERSONAL
+  COMMERCIAL
+  ENTERPRISE
+}
+
+enum JobStatus {
+  UPLOADING
+  VALIDATING
+  QUEUED
+  PROTECTING
+  COMPLETED
+  FAILED
+}
+
+enum ProtectionTier {
+  BASIC
+  ADVANCED
+  ENTERPRISE
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  passwordHash  String
+  name          String?
+  plan          Plan           @default(FREE)
+  apiKey        String         @unique @default(cuid())
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  subscription  Subscription?
+  jobs          ProcessedJob[]
+  rateLimits    RateLimitLog[]
+
+  @@index([email])
+  @@index([apiKey])
+}
+
+model Subscription {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  stripeId      String?  @unique
+  plan          Plan
+  monthlyQuota  Int      @default(50)
+  usedThisMonth Int      @default(0)
+  billingCycleStart DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ProcessedJob {
+  id              String        @id @default(cuid())
+  userId          String
+  status          JobStatus     @default(UPLOADING)
+  originalName    String
+  originalSize    Int
+  protectedSize   Int?
+  protectionTier  ProtectionTier
+  preset          String        @default("default")
+
+  stringEncryption  Boolean     @default(false)
+  fieldEncryption   Boolean     @default(false)
+  controlFlow       Boolean     @default(false)
+  nativeStub        Boolean     @default(false)
+  antiDebug         Boolean     @default(false)
+  antiDump          Boolean     @default(false)
+  antiApiHooks      Boolean     @default(false)
+  vmBytecode        Boolean     @default(false)
+  selfRefKey        Boolean     @default(false)
+
+  originalPath    String?
+  protectedPath   String?
+  ipHash          String?
+  userAgent       String?
+  errorMessage    String?
+  processingMs    Int?
+
+  createdAt       DateTime    @default(now())
+  expiresAt       DateTime    @default(now()) @db.Timestamptz()
+  completedAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model RateLimitLog {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String
+  count     Int      @default(1)
+  windowStart DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, endpoint, windowStart])
+}

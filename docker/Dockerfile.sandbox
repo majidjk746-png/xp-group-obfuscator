@@ -1,0 +1,14 @@
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    wine64 \
+    wine \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -r -s /bin/false sandbox
+
+USER sandbox
+WORKDIR /sandbox
+
+ENTRYPOINT ["wine64", "/opt/xpgroup/XpGroup.exe"]
