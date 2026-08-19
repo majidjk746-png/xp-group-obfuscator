@@ -39,6 +39,8 @@ let dbAvailable = true;
 async function tryCreatePrismaStore(): Promise<UserStore | null> {
   try {
     const { prisma } = await import("@/lib/prisma");
+    const { ensureMigration } = await import("@/lib/migration");
+    await ensureMigration();
     await prisma.$queryRaw`SELECT 1`;
 
     const memory = new MemoryUserStore();
