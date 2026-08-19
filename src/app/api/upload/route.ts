@@ -104,8 +104,22 @@ export async function POST(request: NextRequest) {
     }
 
     const jobId = crypto.randomUUID();
-    const store = await getJobStore();
-    const fileBytes = new Uint8Array(arrayBuf);
+    let store;
+    let fileBytes = new Uint8Array(arrayBuf);
+
+    if (IS_VERCEL) {
+      store = {
+        createJob: async () => {},
+        getJob: async () => null,
+        updateJob: async () => {},
+        deleteJob: async () => {},
+        getJobFile: async () => null,
+        setJobFile: async () => {},
+        deleteJobFile: async () => {},
+      };
+    } else {
+      store = await getJobStore();
+    }
 
     let inputPath = "";
     let outputPath = "";
@@ -149,10 +163,6 @@ export async function POST(request: NextRequest) {
       userAgent: request.headers.get("user-agent")?.slice(0, 256) || null,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
-
-    if (IS_VERCEL) {
-      await store.setJobFile(jobId, fileBytes);
-    }
 
     await store.updateJob(jobId, { status: "PROTECTING" });
 
