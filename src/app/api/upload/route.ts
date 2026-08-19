@@ -157,9 +157,11 @@ export async function POST(request: NextRequest) {
     await store.updateJob(jobId, { status: "PROTECTING" });
 
     let result;
+    let protectedBytes: Uint8Array | null = null;
+
     if (IS_VERCEL) {
       const start = Date.now();
-      await store.setJobFile(jobId + "_protected", fileBytes);
+      protectedBytes = fileBytes;
       result = {
         success: true,
         outputPath: "",
@@ -195,14 +197,9 @@ export async function POST(request: NextRequest) {
     let protectedFileBase64: string | undefined;
     let protectedChecksum: string | undefined;
 
-    if (IS_VERCEL) {
-      const protectedBuf = await store.getJobFile(jobId + "_protected");
-      if (protectedBuf) {
-        protectedFileBase64 = Buffer.from(protectedBuf).toString("base64");
-        protectedChecksum = crypto.createHash("sha256").update(protectedBuf).digest("hex");
-        await store.deleteJobFile(jobId);
-        await store.deleteJobFile(jobId + "_protected");
-      }
+    if (IS_VERCEL && protectedBytes) {
+      protectedFileBase64 = Buffer.from(protectedBytes).toString("base64");
+      protectedChecksum = crypto.createHash("sha256").update(protectedBytes).digest("hex");
     }
 
     const response: UploadResponse & { protectedFileBase64?: string; protectedChecksum?: string } = {
