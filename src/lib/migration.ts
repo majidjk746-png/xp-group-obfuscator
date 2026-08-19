@@ -24,21 +24,43 @@ export async function ensureMigration(): Promise<void> {
 
   try {
     const sql = await fs.readFile(migrationSqlPath, "utf-8");
+
     const statements = sql
       .split(";")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && !s.startsWith("--"));
+      .map((s) =>
+        s
+          .split("\n")
+          .filter((line) => !line.trim().startsWith("--"))
+          .join("\n")
+          .trim()
+      )
+      .filter((s) => s.length > 0);
+
+    let applied = 0;
+    let skipped = 0;
 
     for (const stmt of statements) {
       try {
         await prisma.$executeRawUnsafe(stmt);
-      } catch {
-        // table/enum might already exist, ignore duplicate errors
+        applied++;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (
+          msg.includes("already exists") ||
+          msg.includes("duplicate") ||
+          msg.includes("does not exist")
+        ) {
+          skipped++;
+        } else {
+          console.error("[migration] Statement failed:", msg.slice(0, 200));
+          console.error("[migration] SQL:", stmt.slice(0, 200));
+          skipped++;
+        }
       }
     }
 
     migrationDone = true;
-    console.log("[migration] Schema applied successfully");
+    console.log(`[migration] Done: ${applied} applied, ${skipped} skipped`);
   } catch (err) {
     migrationDone = true;
     console.error("[migration] Failed:", (err as Error).message?.slice(0, 200));
